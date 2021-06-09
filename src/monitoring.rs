@@ -15,7 +15,10 @@ use prometheus::{
 	GaugeVec, TextEncoder,
 };
 
-use std::{net::SocketAddr, time::Instant};
+use std::{
+	net::{SocketAddr, ToSocketAddrs},
+	time::Instant,
+};
 
 use crate::global::settings;
 
@@ -201,9 +204,22 @@ fn avg_metrics(metric_families: Vec<MetricFamily>) -> Option<f64> {
 
 /// Initializes performance monitoring, starting a basic HTTP server for prometheus to poll.
 pub fn init() {
-	if let Some(addr) = settings().logging.prometheus {
-		ENABLED.set(true).unwrap();
-		tokio::spawn(prometheus_server(addr));
+	if let Some(addr) = &settings().logging.prometheus {
+		match addr.to_socket_addrs() {
+			Ok(mut sock_addr) => {
+				ENABLED.set(true).unwrap();
+				tokio::spawn(prometheus_server(
+					sock_addr.next().expect("Configured Prometheus address produced no socket addresses"),
+				));
+			}
+			Err(e) => {
+				ENABLED.set(false).unwrap();
+				log::error!(
+					"Prometheus address could not be resolve to IP: {}",
+					e
+				)
+			}
+		}
 	} else {
 		ENABLED.set(false).unwrap();
 
